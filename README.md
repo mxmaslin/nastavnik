@@ -99,7 +99,7 @@ make up
 make test
 ```
 
-**E2E (Playwright):** поднять стек с backend (**`make up`** или как минимум сервисы до API на порту 8000), затем:
+**E2E (Playwright):** нужен отвечающий backend на **:8000** с зависимостями (удобно тот же набор, что и для **`make test`**, или полный **`make up`**). Если контейнер **frontend** не поднят, Playwright сам запустит локальный Next на **:3000** (см. `playwright.config.ts`). Затем:
 
 ```bash
 make test-e2e

@@ -122,7 +122,7 @@ services:
       - "3000:3000"
     environment:
       # SSR: Django в сети compose. Браузер за nginx — относительный /api; прямой :3000 — :8000.
-      # Без nginx (два туннеля tuna): задайте NEXT_PUBLIC_API_URL на URL бэкенда.
+      # Без nginx на одном origin: задайте NEXT_PUBLIC_API_URL на внешний URL бэкенда.
       API_INTERNAL_URL: http://backend:8000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     depends_on:
