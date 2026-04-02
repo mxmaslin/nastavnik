@@ -244,7 +244,7 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
         if (!cancelled) {
           addMessage(
             'error',
-            'Не удалось загрузить урок. Убедитесь, что backend запущен (make up) и доступен по http://localhost:8000 (тот же хост, что и Next на :3000).'
+            'Не удалось загрузить урок. Запустите стек (make up) и откройте http://localhost:8080 (nginx) или проверьте backend на http://localhost:8000 при входе напрямую на :3000.'
           );
         }
       }

@@ -121,14 +121,26 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # SSR / server: обращение к Django в сети compose (браузер сам ходит на <host>:8000).
+      # SSR: Django в сети compose. Браузер за nginx — относительный /api; прямой :3000 — :8000.
+      # Без nginx (два туннеля tuna): задайте NEXT_PUBLIC_API_URL на URL бэкенда.
       API_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     depends_on:
       - backend
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
 
   prometheus:
     image: prom/prometheus:v2.48.0

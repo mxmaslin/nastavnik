@@ -1,6 +1,6 @@
 /**
  * База URL для API.
- * Браузер: `http://<host>:8000` (тот же host, что у страницы Next на :3000). CORS в Django включён.
+ * Браузер: при входе на Next :3000 — Django на :8000; за nginx (:8080, tuna и т.д.) — относительные /api/....
  * Переопределение: NEXT_PUBLIC_API_URL.
  * SSR: API_INTERNAL_URL или http://backend:8000
  */
@@ -11,8 +11,11 @@ function apiBase(): string {
     if (explicit !== undefined && explicit !== '') {
       return explicit.replace(/\/$/, '');
     }
-    const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:8000`.replace(/\/$/, '');
+    const { protocol, hostname, port } = window.location;
+    if (port === '3000') {
+      return `${protocol}//${hostname}:8000`.replace(/\/$/, '');
+    }
+    return '';
   }
 
   if (explicit !== undefined && explicit !== '') {

@@ -82,13 +82,14 @@ make up
 | Веб-интерфейс (Next.js) | http://localhost:3000 |
 | Django / DRF | http://localhost:8000 |
 | ML-сервис | http://localhost:8001 |
+| Nginx — фронт и API на одном origin | http://localhost:8080 |
 | Prometheus | http://localhost:9090 |
 | Grafana (admin / admin) | http://localhost:3001 |
 | RabbitMQ management | http://localhost:15672 (guest / guest) |
 
-Интерфейс открывайте по **http://localhost:3000**. Запросы к API идут с браузера на **http://localhost:8000** (CORS в Django разрешён). При необходимости базу API можно задать переменной **NEXT_PUBLIC_API_URL**.
+Удобная точка входа с **nginx**: **http://localhost:8080** (тот же origin для фронта и `/api/...`). При прямом открытии **:3000** браузер обращается к API на **:8000**. При необходимости базу API для клиента можно задать **NEXT_PUBLIC_API_URL** в `.env`.
 
-**OpenAPI / Swagger UI:** **http://localhost:8000/api/schema/swagger-ui/** (схема YAML: `/api/schema/`). Вопросы в API отдаются с полем **`choices`** (три варианта для радиокнопок на фронте).
+**OpenAPI / Swagger UI:** **http://localhost:8000/api/schema/swagger-ui/** (тот же путь через nginx: **http://localhost:8080/api/schema/swagger-ui/**). Вопросы в API отдаются с полем **`choices`** (три варианта для радиокнопок на фронте).
 
 В проде `correct_answer` и поля дистракторов в JSON не отдаются; клиент шлёт выбранную строку в `POST /api/answer/submit/` как раньше.
 
