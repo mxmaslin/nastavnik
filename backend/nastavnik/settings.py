@@ -18,6 +18,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django_prometheus',
     'rest_framework',
+    'drf_spectacular',
     'corsheaders',
     'channels',
     'lessons',
@@ -87,10 +88,21 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
+# OpenAPI / Swagger UI (см. /api/schema/swagger-ui/)
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Nastavnik API',
+    'DESCRIPTION': 'Уроки, ответы, статистика; вопросы отдаются с полем choices (3 варианта).',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+
 # REST Framework
 REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    # Пустой список: без SessionAuthentication браузерные POST из Next.js не требуют CSRF-токена.
+    'DEFAULT_AUTHENTICATION_CLASSES': [],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],

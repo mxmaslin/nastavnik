@@ -34,28 +34,38 @@ while its powerful features make it suitable for complex enterprise applications
             {
                 "text": "Who created the Python programming language?",
                 "correct_answer": "Guido van Rossum",
-                "order": 1
+                "distractor_1": "James Gosling",
+                "distractor_2": "Bjarne Stroustrup",
+                "order": 1,
             },
             {
                 "text": "In what year was Python first released?",
                 "correct_answer": "1991",
-                "order": 2
+                "distractor_1": "1989",
+                "distractor_2": "1995",
+                "order": 2,
             },
             {
                 "text": "What programming paradigm does Python support? (Name at least one)",
                 "correct_answer": "object-oriented",
-                "order": 3
+                "distractor_1": "only procedural",
+                "distractor_2": "only logic",
+                "order": 3,
             },
             {
                 "text": "What is Python known for emphasizing in its syntax?",
                 "correct_answer": "readability",
-                "order": 4
+                "distractor_1": "brevity at any cost",
+                "distractor_2": "explicit typing everywhere",
+                "order": 4,
             },
             {
                 "text": "Is Python a compiled or interpreted language?",
                 "correct_answer": "interpreted",
-                "order": 5
-            }
+                "distractor_1": "compiled to machine code only",
+                "distractor_2": "transpiled to C++ exclusively",
+                "order": 5,
+            },
         ]
 
         for q_data in questions_data:
@@ -64,4 +74,8 @@ while its powerful features make it suitable for complex enterprise applications
                 **q_data
             )
 
-        self.stdout.write(self.style.SUCCESS(f'Successfully created lesson with {len(questions_data)} questions'))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f'Successfully created lesson with {len(questions_data)} questions'
+            )
+        )

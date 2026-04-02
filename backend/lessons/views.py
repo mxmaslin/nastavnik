@@ -1,7 +1,8 @@
 import logging
+import os
 import uuid
 from django.utils import timezone
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
@@ -19,6 +20,39 @@ logger = logging.getLogger(__name__)
 
 def health_check(request):
     return JsonResponse({'status': 'ok'})
+
+
+def backend_root(request):
+    """
+    Подсказка при открытии :8000/ в браузере (фронт отдельно, обычно :3000).
+    """
+    frontend = os.environ.get('FRONTEND_PUBLIC_URL', 'http://localhost:3000')
+    accept = request.headers.get('Accept', '')
+    if 'application/json' in accept and 'text/html' not in accept:
+        return JsonResponse(
+            {
+                'service': 'nastavnik-backend',
+                'docs': 'API под префиксом /api/',
+                'openapi': '/api/schema/',
+                'swagger_ui': '/api/schema/swagger-ui/',
+                'health': '/api/health/',
+                'frontend': frontend,
+            }
+        )
+    body = f"""<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>Nastavnik — backend</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:36rem;margin:2rem auto;line-height:1.5">
+  <h1>Nastavnik (backend)</h1>
+  <p>Это API-сервер Django. Веб-интерфейс откройте по ссылке:</p>
+  <p><a href="{frontend}">{frontend}</a></p>
+  <ul>
+    <li><a href="/api/schema/swagger-ui/"><code>Swagger UI</code></a> (OpenAPI)</li>
+    <li><a href="/api/health/"><code>/api/health/</code></a></li>
+    <li><a href="/api/lessons/"><code>/api/lessons/</code></a></li>
+    <li><a href="/admin/"><code>/admin/</code></a></li>
+  </ul>
+</body></html>"""
+    return HttpResponse(body, content_type='text/html; charset=utf-8')
 
 
 def _ordered_questions(lesson):
@@ -52,10 +86,20 @@ class LessonViewSet(viewsets.ReadOnlyModelViewSet):
             defaults={'current_question_index': 0}
         )
 
+        # Повтор того же урока с тем же session_id (после завершения и статистики).
         if not created and session.is_completed:
-            return Response(
-                {'error': 'Session already completed'},
-                status=status.HTTP_400_BAD_REQUEST
+            InteractionRecord.objects.filter(session_id=session_id, lesson=lesson).delete()
+            session.is_completed = False
+            session.completed_at = None
+            session.current_question_index = 0
+            session.started_at = timezone.now()
+            session.save(
+                update_fields=[
+                    'is_completed',
+                    'completed_at',
+                    'current_question_index',
+                    'started_at',
+                ]
             )
 
         if created:
@@ -245,12 +289,37 @@ def interaction_status(request, interaction_id):
 @api_view(['GET'])
 def statistics(request):
     session_id = request.query_params.get('session_id')
+    lesson_id = request.query_params.get('lesson_id')
+    if lesson_id and not session_id:
+        return Response(
+            {'error': 'session_id is required when lesson_id is set'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if lesson_id:
+        try:
+            uuid.UUID(str(lesson_id))
+        except (ValueError, TypeError, AttributeError):
+            return Response(
+                {'error': 'invalid lesson_id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     interactions = InteractionRecord.objects.all()
     session_qs = LessonSession.objects.all()
     if session_id:
         interactions = interactions.filter(session_id=session_id)
         session_qs = session_qs.filter(session_id=session_id)
+    if lesson_id:
+        interactions = interactions.filter(lesson_id=lesson_id)
+        session_qs = session_qs.filter(lesson_id=lesson_id)
+
+    lesson_title = None
+    scope = 'lesson' if lesson_id else 'all'
+    if lesson_id:
+        try:
+            lesson_title = Lesson.objects.only('title').get(id=lesson_id).title
+        except Lesson.DoesNotExist:
+            lesson_title = None
 
     total = interactions.count()
     correct = interactions.filter(is_correct=True).count()
@@ -274,6 +343,8 @@ def statistics(request):
         'timeouts': timeouts,
         'ml_successful_validations': ml_ok,
         'avg_session_duration_sec': avg_duration,
+        'scope': scope,
+        'lesson_title': lesson_title,
     })
 
     return Response(serializer.data)

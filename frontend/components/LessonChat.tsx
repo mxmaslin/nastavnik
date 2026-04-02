@@ -8,6 +8,8 @@ interface Question {
   id: string;
   text: string;
   order: number;
+  /** Три варианта: один верный и два отвлекающих (порядок с бэкенда). */
+  choices?: string[];
 }
 
 interface StartLessonResponse {
@@ -29,12 +31,11 @@ interface LessonChatProps {
   lessonId: string;
   sessionId: string;
   onComplete: () => void;
-  onBack: () => void;
 }
 
 type Phase = 'reading' | 'questions' | 'completed';
 
-export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: LessonChatProps) {
+export default function LessonChat({ lessonId, sessionId, onComplete }: LessonChatProps) {
   const [phase, setPhase] = useState<Phase>('reading');
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
@@ -42,11 +43,13 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
   const [lessonBody, setLessonBody] = useState('');
   const [answer, setAnswer] = useState('');
   const [timeLeft, setTimeLeft] = useState(30);
-  const [isWaiting, setIsWaiting] = useState(false);
+  /** Только запрос submitAnswer; опрос ML не блокирует ввод по следующему вопросу. */
+  const [isPostingAnswer, setIsPostingAnswer] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [totalQuestions, setTotalQuestions] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const feedBottomRef = useRef<HTMLDivElement>(null);
+  const prevQuestionIdRef = useRef<string | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startPayloadRef = useRef<StartLessonResponse | null>(null);
   const handleTimeoutRef = useRef<() => void>(() => {});
@@ -55,13 +58,22 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
     setMessages(prev => [...prev, { type, content, timestamp: new Date(), isCorrect }]);
   }, []);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+  // Лента: старые сообщения выше, текущий вопрос внизу. Прокрутка вниз при новых сообщениях;
+  // при смене вопроса — плавно, чтобы сфокусировать актуальный вопрос.
+  useEffect(() => {
+    const qid = currentQuestion?.id ?? null;
+    const questionChanged = prevQuestionIdRef.current !== qid;
+    prevQuestionIdRef.current = qid;
+    const behavior: ScrollBehavior = questionChanged ? 'smooth' : 'auto';
+    const id = requestAnimationFrame(() => {
+      feedBottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messages, currentQuestion?.id]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    setAnswer('');
+  }, [currentQuestion?.id]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -105,7 +117,7 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
   }, []);
 
   useEffect(() => {
-    if (phase !== 'questions' || !currentQuestion || isWaiting || isCompleted) {
+    if (phase !== 'questions' || !currentQuestion || isPostingAnswer || isCompleted) {
       stopTimer();
       return;
     }
@@ -121,7 +133,7 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
       });
     }, 1000);
     return () => stopTimer();
-  }, [phase, currentQuestion?.id, isWaiting, isCompleted, stopTimer]);
+  }, [phase, currentQuestion?.id, isPostingAnswer, isCompleted, stopTimer]);
 
   const pollForResult = useCallback(
     (interactionId: string, lessonComplete: boolean) => {
@@ -130,7 +142,6 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
 
       const finalizeSuccess = (icon: string, text: string, correctFlag: boolean | null) => {
         addMessage('result', `${icon} ${text}`, correctFlag);
-        setIsWaiting(false);
         if (lessonComplete) {
           addMessage('info', 'Урок завершён.');
           setIsCompleted(true);
@@ -164,7 +175,6 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
             setTimeout(poll, 2000);
           } else {
             addMessage('error', 'Проверка ответа занимает слишком много времени.');
-            setIsWaiting(false);
             if (lessonComplete) {
               setIsCompleted(true);
               setPhase('completed');
@@ -176,7 +186,6 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
           if (attempts < maxAttempts) {
             setTimeout(poll, 2000);
           } else {
-            setIsWaiting(false);
             if (lessonComplete) {
               setIsCompleted(true);
               setPhase('completed');
@@ -193,9 +202,9 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
   );
 
   const handleTimeout = useCallback(async () => {
-    if (phase !== 'questions' || !currentQuestion || isWaiting) return;
+    if (phase !== 'questions' || !currentQuestion || isPostingAnswer) return;
 
-    setIsWaiting(true);
+    setIsPostingAnswer(true);
     addMessage('timeout', 'Время вышло. Записываем пустой ответ…');
 
     try {
@@ -210,12 +219,13 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
         setCurrentIndex(data.current_question_index);
         setTotalQuestions(data.total_questions);
       }
+      setIsPostingAnswer(false);
       pollForResult(data.interaction_id, Boolean(data.lesson_complete));
     } catch {
       addMessage('error', 'Не удалось записать ответ по таймауту');
-      setIsWaiting(false);
+      setIsPostingAnswer(false);
     }
-  }, [phase, currentQuestion, isWaiting, sessionId, addMessage, pollForResult]);
+  }, [phase, currentQuestion, isPostingAnswer, sessionId, addMessage, pollForResult]);
 
   useEffect(() => {
     handleTimeoutRef.current = () => {
@@ -223,27 +233,37 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
     };
   }, [handleTimeout]);
 
-  const loadLesson = useCallback(async () => {
-    try {
-      const data = (await startLesson(lessonId, sessionId)) as StartLessonResponse;
-      applyStartResponse(data);
-    } catch {
-      addMessage('error', 'Не удалось загрузить урок');
-    }
-  }, [lessonId, sessionId, applyStartResponse, addMessage]);
-
   useEffect(() => {
-    void loadLesson();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = (await startLesson(lessonId, sessionId)) as StartLessonResponse;
+        if (cancelled) return;
+        applyStartResponse(data);
+      } catch {
+        if (!cancelled) {
+          addMessage(
+            'error',
+            'Не удалось загрузить урок. Убедитесь, что backend запущен (make up) и доступен по http://localhost:8000 (тот же хост, что и Next на :3000).'
+          );
+        }
+      }
+    })();
     return () => {
+      cancelled = true;
       stopTimer();
     };
-  }, [loadLesson, stopTimer]);
+  }, [lessonId, sessionId, applyStartResponse, addMessage, stopTimer]);
+
+  useEffect(() => {
+    prevQuestionIdRef.current = null;
+  }, [lessonId]);
 
   const handleSubmit = async () => {
-    if (phase !== 'questions' || !currentQuestion || !answer.trim() || isWaiting) return;
+    if (phase !== 'questions' || !currentQuestion || !answer || isPostingAnswer) return;
 
     stopTimer();
-    setIsWaiting(true);
+    setIsPostingAnswer(true);
 
     addMessage('answer', `Ваш ответ: ${answer}`);
 
@@ -261,10 +281,11 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
         setTotalQuestions(data.total_questions);
       }
 
+      setIsPostingAnswer(false);
       pollForResult(data.interaction_id, Boolean(data.lesson_complete));
     } catch {
       addMessage('error', 'Не удалось отправить ответ');
-      setIsWaiting(false);
+      setIsPostingAnswer(false);
     }
 
     setAnswer('');
@@ -327,22 +348,11 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          gap: '16px',
           flexShrink: 0,
         }}
       >
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '16px',
-          }}
-        >
-          ← Назад
-        </button>
-        <div style={{ textAlign: 'center' }}>
+        <div style={{ textAlign: 'left', minWidth: 0 }}>
           <strong>{lessonTitle || 'Урок'}</strong>
           {totalQuestions > 0 && (
             <p style={{ fontSize: '12px', color: 'var(--gray-500)', marginTop: '4px' }}>
@@ -363,6 +373,7 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
             cursor: isCompleted ? 'not-allowed' : 'pointer',
             fontSize: '12px',
             opacity: isCompleted ? 0.5 : 1,
+            flexShrink: 0,
           }}
         >
           Завершить досрочно
@@ -464,25 +475,6 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
           minHeight: 0,
         }}
       >
-        {phase === 'questions' && currentQuestion && !isCompleted && (
-          <div
-            style={{
-              padding: '16px',
-              borderRadius: '12px',
-              background: '#f0f9ff',
-              border: '1px solid #bae6fd',
-              flexShrink: 0,
-            }}
-          >
-            <p style={{ fontSize: '12px', color: 'var(--gray-500)', marginBottom: '8px' }}>
-              Вопрос {currentNumber} из {totalQuestions}
-            </p>
-            <div style={{ fontSize: '16px', lineHeight: 1.5 }}>
-              <FormattedText text={currentQuestion.text} />
-            </div>
-          </div>
-        )}
-
         {messages.length > 0 && (
           <p style={{ fontSize: '11px', color: 'var(--gray-500)' }}>История ответов</p>
         )}
@@ -510,7 +502,28 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
             {msg.content}
           </div>
         ))}
-        <div ref={messagesEndRef} />
+
+        {phase === 'questions' && currentQuestion && !isCompleted && (
+          <div
+            style={{
+              padding: '16px',
+              borderRadius: '12px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              flexShrink: 0,
+              marginTop: messages.length ? '4px' : 0,
+            }}
+          >
+            <p style={{ fontSize: '12px', color: 'var(--gray-500)', marginBottom: '8px' }}>
+              Вопрос {currentNumber} из {totalQuestions}
+            </p>
+            <div style={{ fontSize: '16px', lineHeight: 1.5 }}>
+              <FormattedText text={currentQuestion.text} />
+            </div>
+          </div>
+        )}
+
+        <div ref={feedBottomRef} style={{ flexShrink: 0, height: 1, width: '100%' }} aria-hidden />
       </div>
 
       {!isCompleted && (
@@ -593,47 +606,77 @@ export default function LessonChat({ lessonId, sessionId, onComplete, onBack }: 
                 </span>
               </div>
 
-              <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)' }}>
-                Ваш ответ
-              </label>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-                <input
-                  type="text"
-                  value={answer}
-                  onChange={e => setAnswer(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && void handleSubmit()}
-                  placeholder="Введите ответ и нажмите «Отправить»"
-                  disabled={isWaiting}
-                  autoComplete="off"
+              <fieldset
+                style={{
+                  margin: 0,
+                  padding: 0,
+                  border: 'none',
+                  minWidth: 0,
+                }}
+              >
+                <legend style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)' }}>
+                  Выберите ответ
+                </legend>
+                <div
                   style={{
-                    flex: 1,
-                    minWidth: 0,
-                    padding: '14px 16px',
-                    borderRadius: '8px',
-                    border: '2px solid var(--gray-300)',
-                    fontSize: '16px',
-                    outline: 'none',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleSubmit()}
-                  disabled={isWaiting || !answer.trim()}
-                  style={{
-                    padding: '14px 22px',
-                    background: 'var(--primary)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: isWaiting || !answer.trim() ? 'not-allowed' : 'pointer',
-                    opacity: isWaiting || !answer.trim() ? 0.6 : 1,
-                    fontSize: '16px',
-                    whiteSpace: 'nowrap',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    marginTop: '10px',
+                    marginBottom: '12px',
                   }}
                 >
-                  Отправить
-                </button>
-              </div>
+                  {(currentQuestion.choices ?? []).map(choice => (
+                    <label
+                      key={choice}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '10px',
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        border:
+                          answer === choice
+                            ? '2px solid var(--primary)'
+                            : '2px solid var(--gray-200)',
+                        background: answer === choice ? '#eff6ff' : 'var(--gray-50)',
+                        cursor: isPostingAnswer ? 'not-allowed' : 'pointer',
+                        fontSize: '15px',
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name={`q-${currentQuestion.id}`}
+                        value={choice}
+                        checked={answer === choice}
+                        disabled={isPostingAnswer}
+                        onChange={() => setAnswer(choice)}
+                        style={{ marginTop: '3px', flexShrink: 0 }}
+                      />
+                      <span>{choice}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <button
+                type="button"
+                onClick={() => void handleSubmit()}
+                disabled={isPostingAnswer || !answer}
+                style={{
+                  width: '100%',
+                  padding: '14px 22px',
+                  background: 'var(--primary)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: isPostingAnswer || !answer ? 'not-allowed' : 'pointer',
+                  opacity: isPostingAnswer || !answer ? 0.6 : 1,
+                  fontSize: '16px',
+                }}
+              >
+                Отправить
+              </button>
             </>
           )}
         </div>

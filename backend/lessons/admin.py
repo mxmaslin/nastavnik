@@ -11,7 +11,14 @@ class LessonAdmin(admin.ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ['text', 'lesson', 'order', 'correct_answer']
+    list_display = [
+        'text',
+        'lesson',
+        'order',
+        'correct_answer',
+        'distractor_1',
+        'distractor_2',
+    ]
     list_filter = ['lesson']
     search_fields = ['text']
 

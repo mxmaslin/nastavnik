@@ -1,6 +1,6 @@
 # Nastavnik: справочник API и релиза
 
-Все пути Django ниже — с префиксом **`/api/`** (через nginx: `http://localhost/api/...`). Ответы — JSON, UUID в строках.
+Все пути Django ниже — с префиксом **`/api/`** (напрямую: `http://localhost:8000/api/...`). Ответы — JSON, UUID в строках.
 
 ---
 
@@ -24,8 +24,8 @@
 | Метод | Путь | Тело / query | Успех |
 |--------|------|----------------|--------|
 | GET | `/api/lessons/` | — | 200, пагинированный список (`id`, `title`, `question_count`, `created_at`) |
-| GET | `/api/lessons/{lesson_uuid}/` | — | 200, урок с `questions[]` (`id`, `text`, `order`) и `text` урока |
-| POST | `/api/lessons/{lesson_uuid}/start/` | `{ "session_id": "<optional string>" }` | 200, см. ниже; 400 если сессия уже завершена |
+| GET | `/api/lessons/{lesson_uuid}/` | — | 200, урок с `questions[]` (`id`, `text`, `order`, `choices`) и `text` урока |
+| POST | `/api/lessons/{lesson_uuid}/start/` | `{ "session_id": "<optional string>" }` | 200, см. ниже; повтор после **завершённой** сессии — новая попытка (сброс ответов по этой паре session+lesson) |
 | POST | `/api/lessons/{lesson_uuid}/complete/` | `{ "session_id": "<required>" }` | 200, см. ниже; 400/404 |
 
 **Ответ `start` (200):**
@@ -34,11 +34,13 @@
 {
   "session_id": "...",
   "lesson": { "id", "title", "text", "questions", "created_at" },
-  "current_question": { "id", "text", "order" },
+  "current_question": { "id", "text", "order", "choices": ["...", "...", "..."] },
   "current_question_index": 0,
   "total_questions": 0
 }
 ```
+
+`choices` — три варианта (верный + два `distractor_*`), порядок стабилен для `id` вопроса. Поля `correct_answer` и дистракторы в ответ API не входят.
 
 `current_question` может быть `null`, если вопросы закончились.
 
@@ -62,7 +64,7 @@
 
 ```json
 {
-  "current_question": { "id", "text", "order" },
+  "current_question": { "id", "text", "order", "choices": ["...", "...", "..."] },
   "current_question_index": 0,
   "total_questions": 0,
   "is_completed": false
@@ -83,7 +85,7 @@
 {
   "interaction_id": "<uuid>",
   "status": "processing",
-  "next_question": { "id", "text", "order" },
+  "next_question": { "id", "text", "order", "choices": ["...", "...", "..."] },
   "current_question_index": 0,
   "total_questions": 0,
   "lesson_complete": false
@@ -108,20 +110,27 @@
 
 | Метод | Путь | Query | Успех |
 |--------|------|--------|--------|
-| GET | `/api/statistics/` | `session_id` — опционально | 200 |
+| GET | `/api/statistics/` | `session_id` — опционально; `lesson_id` — опционально (тогда **обязателен** `session_id`) | 200; 400 если задан только `lesson_id` без `session_id` или невалидный UUID |
 
 **Ответ (200):**
 
-`total_sessions`, `completed_sessions`, `total_questions_answered`, `correct_answers`, `success_rate`, `ml_failures`, `timeouts`, `ml_successful_validations`, `avg_session_duration_sec`.
+`total_sessions`, `completed_sessions`, `total_questions_answered`, `correct_answers`, `success_rate`, `ml_failures`, `timeouts`, `ml_successful_validations`, `avg_session_duration_sec`, **`scope`**: `"all"` \| `"lesson"`, **`lesson_title`**: string \| null.
+
+Без `lesson_id` — агрегат по всем урокам (в рамках `session_id`, если передан). С `lesson_id` — только по этому уроку и сессии.
 
 ### Прочее Django
 
 | Метод | Путь | Назначение |
 |--------|------|-------------|
+| GET | `/` | Подсказка в браузере: фронт на :3000, ссылки на API / admin / Swagger |
 | GET | `/api/health/` | `{ "status": "ok" }` |
+| GET | `/api/schema/` | OpenAPI 3 (YAML) |
+| GET | `/api/schema/swagger-ui/` | **Swagger UI** (интерактивная документация) |
 | GET | `/metrics/` | Prometheus (корень сайта, не под `/api/`) |
 
-**Админка:** `/admin/` (через nginx в `nginx.conf` проксируется на backend).
+**Админка:** `http://localhost:8000/admin/`.
+
+Раньше Swagger не был подключён; сейчас схема строится через **drf-spectacular** из DRF viewsets и `@api_view`.
 
 ### Throttling
 
@@ -154,11 +163,12 @@
 Скопируй и отмечай:
 
 ```
-[ ] make test — зелёный (backend + ml_service)
+[ ] make test — зелёный (backend + ml_service); CI / make test-e2e — Playwright при поднятом API
 [ ] docker compose config — без ошибок
 [ ] make up — backend healthy, celery без падений, seed есть данные
-[ ] http://localhost — старт урока, ответ, таймаут пустого ответа, End Early
-[ ] После прохождения — статистика открывается
+[ ] http://localhost:3000 — старт урока, ответ, таймаут пустого ответа, досрочное завершение
+[ ] После прохождения — статистика только по уроку; с главной — статистика по всем пройденным
+[ ] Повтор того же урока после завершения — новая попытка без ошибки загрузки
 [ ] http://localhost:9090 — targets django / ml_service UP (после трафика)
 [ ] Миграции закоммичены, нет расхождений models vs БД
 [ ] README: порты и команды актуальны

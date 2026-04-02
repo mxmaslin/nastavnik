@@ -1,42 +1,71 @@
-.PHONY: up down build test logs restart clean
+.PHONY: up down build test test-e2e logs logs-backend logs-frontend logs-ml restart clean shell-backend shell-db shell-redis
+
+# Идемпотентность: повторный запуск той же цели не должен падать с ошибкой, если это не нарушает смысл цели.
+
+COMPOSE ?= docker-compose
 
 up:
-	docker-compose up -d --build
+	$(COMPOSE) up -d --build --remove-orphans
 
 down:
-	docker-compose down
+	$(COMPOSE) down --remove-orphans
 
 build:
-	docker-compose build
+	$(COMPOSE) build
 
+# Поднимает зависимости для тестов, затем pytest (повторный make test без предварительного up).
 test:
-	docker-compose exec -e CELERY_TASK_ALWAYS_EAGER=1 backend pytest
-	docker-compose exec ml_service pytest
+	$(COMPOSE) up -d --build db redis rabbitmq backend ml_service
+	$(COMPOSE) exec -T -e CELERY_TASK_ALWAYS_EAGER=1 backend pytest
+	$(COMPOSE) exec -T ml_service pytest
+
+# Playwright E2E: backend должен слушать :8000 (например make up). Next поднимет сам playwright webServer на :3000.
+test-e2e:
+	cd frontend && npm install && npx playwright install chromium && npx playwright test
 
 logs:
-	docker-compose logs -f
+	@if [ -n "$$($(COMPOSE) ps -q 2>/dev/null)" ]; then \
+		$(COMPOSE) logs -f; \
+	else \
+		echo "$(COMPOSE): нет запущенных контейнеров (сначала make up)"; \
+	fi
 
 logs-backend:
-	docker-compose logs -f backend celery
+	@if [ -n "$$($(COMPOSE) ps -q backend celery 2>/dev/null)" ]; then \
+		$(COMPOSE) logs -f backend celery; \
+	else \
+		echo "$(COMPOSE): backend/celery не запущены"; \
+	fi
 
 logs-frontend:
-	docker-compose logs -f frontend
+	@if [ -n "$$($(COMPOSE) ps -q frontend 2>/dev/null)" ]; then \
+		$(COMPOSE) logs -f frontend; \
+	else \
+		echo "$(COMPOSE): frontend не запущен"; \
+	fi
 
 logs-ml:
-	docker-compose logs -f ml_service
+	@if [ -n "$$($(COMPOSE) ps -q ml_service 2>/dev/null)" ]; then \
+		$(COMPOSE) logs -f ml_service; \
+	else \
+		echo "$(COMPOSE): ml_service не запущен"; \
+	fi
 
+# Если контейнеров ещё не было — поднимаем стек вместо ошибки «nothing to restart».
 restart:
-	docker-compose restart
+	@$(COMPOSE) restart || $(COMPOSE) up -d --remove-orphans
 
 clean:
-	docker-compose down -v
-	docker-compose rm -f
+	$(COMPOSE) down -v --remove-orphans
 
 shell-backend:
-	docker-compose exec backend bash
+	$(COMPOSE) up -d backend
+	$(COMPOSE) exec backend bash
 
 shell-db:
-	docker-compose exec db psql -U nastavnik nastavnik
+	$(COMPOSE) up -d db
+	$(COMPOSE) exec db psql -U nastavnik nastavnik
 
 shell-redis:
-	docker-compose exec redis redis-cli
+	$(COMPOSE) up -d redis
+	$(COMPOSE) exec redis redis-cli

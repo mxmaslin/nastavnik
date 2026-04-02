@@ -13,25 +13,36 @@ interface Stats {
   timeouts: number;
   ml_successful_validations: number;
   avg_session_duration_sec: number;
+  scope?: 'all' | 'lesson';
+  lesson_title?: string | null;
 }
 
 interface StatisticsProps {
   sessionId: string;
+  /** Если задан — статистика только по этому уроку (после прохождения). */
+  lessonId?: string;
+  lessonTitle?: string;
   onBack: () => void;
 }
 
-export default function Statistics({ sessionId, onBack }: StatisticsProps) {
+export default function Statistics({
+  sessionId,
+  lessonId,
+  lessonTitle,
+  onBack,
+}: StatisticsProps) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getStatistics(sessionId)
+    setLoading(true);
+    getStatistics(sessionId || undefined, lessonId)
       .then(data => {
         setStats(data);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [sessionId]);
+  }, [sessionId, lessonId]);
 
   if (loading) {
     return (
@@ -72,10 +83,20 @@ export default function Statistics({ sessionId, onBack }: StatisticsProps) {
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
+        gap: '16px',
         marginBottom: '24px'
       }}>
-        <h2 style={{ fontSize: '24px' }}>📊 Statistics</h2>
+        <div>
+          <h2 style={{ fontSize: '24px', margin: 0 }}>📊 Статистика</h2>
+          <p style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '8px' }}>
+            {lessonId
+              ? lessonTitle
+                ? `Только урок: ${lessonTitle}`
+                : 'Только этот урок'
+              : 'Все пройденные ранее уроки'}
+          </p>
+        </div>
         <button
           onClick={onBack}
           style={{

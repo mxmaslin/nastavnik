@@ -1,3 +1,4 @@
+import random
 import uuid
 from django.db import models
 from django.utils import timezone
@@ -22,11 +23,46 @@ class Question(models.Model):
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='questions')
     text = models.TextField()
     correct_answer = models.CharField(max_length=255)
+    distractor_1 = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Неверный вариант для демо (радиокнопки)',
+    )
+    distractor_2 = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Второй неверный вариант',
+    )
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['order']
+
+    def shuffled_choices(self):
+        """Три варианта ответа; порядок стабилен для данного id вопроса."""
+        d1 = (self.distractor_1 or '').strip() or 'Другое (неточно)'
+        d2 = (self.distractor_2 or '').strip() or 'Нет однозначного ответа'
+        pool = [self.correct_answer, d1, d2]
+        out = []
+        seen = set()
+        for item in pool:
+            if item not in seen:
+                seen.add(item)
+                out.append(item)
+        i = 0
+        while len(out) < 3:
+            i += 1
+            filler = f'Вариант {i}'
+            if filler not in seen:
+                seen.add(filler)
+                out.append(filler)
+        out = out[:3]
+        rng = random.Random(int(self.id))
+        rng.shuffle(out)
+        return out
 
     def __str__(self):
         return f"Q{self.order}: {self.text[:50]}"

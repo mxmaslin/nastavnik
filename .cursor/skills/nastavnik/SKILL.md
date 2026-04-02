@@ -21,8 +21,7 @@ Do not contradict README without updating it.
 |------|------|
 | `backend/` | Django project `nastavnik`, app `lessons`, Daphne ASGI, Celery worker image |
 | `ml_service/` | FastAPI `/validate`, async SQLAlchemy + Redis cache |
-| `frontend/` | Next.js App Router, `NEXT_PUBLIC_API_URL=""` for same-origin `/api` via nginx |
-| `nginx/` | `/` → frontend, `/api/` → backend |
+| `frontend/` | Next.js App Router; в браузере API по умолчанию `http://<host>:8000`, опционально `NEXT_PUBLIC_API_URL` |
 | `monitoring/` | Prometheus scrape config, Grafana datasource |
 
 ## Commands
@@ -30,6 +29,7 @@ Do not contradict README without updating it.
 ```bash
 make	up          # full stack
 make	test        # backend pytest (+ eager Celery) + ml_service pytest
+make	test-e2e   # Playwright (нужен backend :8000; Next поднимает webServer)
 make	down / logs # operate compose
 ```
 
@@ -38,22 +38,25 @@ Backend container startup runs `migrate` and `seed_data` before Daphne.
 ## Domain rules (do not break silently)
 
 - **`LessonSession`**: unique on `(session_id, lesson)` — same browser id can do different lessons.
-- **`POST .../lessons/{id}/start/`**: returns question at **`current_question_index`**, not always the first.
+- **`POST .../lessons/{id}/start/`**: returns question at **`current_question_index`**, not always the first. Если сессия по уроку уже **завершена**, повторный `start` **сбрасывает** попытку (удаляет `InteractionRecord` для пары session+lesson, индекс с нуля).
+- **`GET /api/statistics/`**: опционально `lesson_id` + `session_id` — статистика только по одному уроку; без `lesson_id` — по всем данным сессии.
 - **`POST .../answer/submit/`**: must submit the **current** question for that session; response includes `lesson_complete` when no next question.
 - **`POST .../lessons/{id}/complete/`**: creates `InteractionRecord` rows (empty answer, `is_correct=False`) for unanswered questions; returns `remaining_marked_incorrect`.
 - **Celery**: broker **RabbitMQ**; result backend **Redis** `/2`; cache/channels use Redis `/0` (see `docker-compose.yml`).
 
 ## API hints
 
-- Health: `/api/health/` (behind nginx: `http://localhost/api/health/`).
+- **Swagger UI:** `http://localhost:8000/api/schema/swagger-ui/` (OpenAPI из drf-spectacular).
+- В сериализаторе вопроса поле **`choices`** (3 строки) для multiple-choice UI; проверка ответа по-прежнему по тексту выбранного варианта.
+- Health: `http://localhost:8000/api/health/`.
 - Metrics: Django `/metrics`, ML `/metrics` (Prometheus scrapes both).
 - DRF throttling is enabled; heavy manual testing may hit limits.
 - `GET /api/questions/current/` requires **`session_id` and `lesson_id`**.
 
 ## Frontend networking
 
-- **Recommended**: open **http://localhost** (nginx) so fetches use relative `/api/...`.
-- **Direct :3000**: set `NEXT_PUBLIC_API_URL=http://localhost:8000` (or gateway that exposes API).
+- Открой **http://localhost:3000**; фронт ходит на **http://localhost:8000** для `/api/...`.
+- Другой хост API: `NEXT_PUBLIC_API_URL`.
 
 ## Changing data model
 
@@ -63,7 +66,7 @@ Backend container startup runs `migrate` and `seed_data` before Daphne.
 
 ## Quality gate before finishing
 
-- `make test` passes.
+- `make test` passes; при изменениях UI — `make test-e2e` (или CI job `e2e`).
 - `make up` + smoke: lesson flow, ML delay/failures, stats.
 
 ## Additional resources

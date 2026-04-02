@@ -13,7 +13,6 @@ nastavnik/
 ├── backend/           # Django + DRF, Celery worker image, Daphne (ASGI)
 ├── frontend/          # Next.js (TypeScript)
 ├── ml_service/        # FastAPI
-├── nginx/             # Reverse proxy
 ├── monitoring/        # Prometheus + Grafana provisioning
 ├── docker-compose.yml
 ├── Makefile
@@ -24,7 +23,7 @@ nastavnik/
 
 1. **Functionality (30%)** — запуск по README, сценарии урока и ML
 2. **Code quality (25%)** — читаемость, конвенции
-3. **Testing (20%)** — pytest (backend + ml_service), `make test`
+3. **Testing (20%)** — pytest (backend + ml_service), `make test`; E2E фронта — `make test-e2e` / job **e2e** в CI (Playwright)
 4. **Documentation (10%)** — README, ясные инструкции
 5. **Architecture (15%)** — разделение сервисов, очередь, кэш, БД
 
@@ -36,7 +35,7 @@ nastavnik/
 - **ML**: FastAPI, Redis + PostgreSQL (async SQLAlchemy в ML-сервисе)
 - **Data**: PostgreSQL, Redis
 - **Observability**: Prometheus, Grafana (`django-prometheus`, instrumentator на ML)
-- **Deploy**: Docker Compose, nginx
+- **Deploy**: Docker Compose
 - **Tests**: Pytest
 
 ## Quality gates

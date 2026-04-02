@@ -75,3 +75,44 @@ jobs:
           cache-dependency-path: ml_service/requirements.txt
       - run: pip install -r requirements.txt
       - run: pytest
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start API stack
+        run: docker compose up -d --build db redis rabbitmq backend ml_service celery
+
+      - name: Wait for backend
+        run: |
+          for i in $(seq 1 45); do
+            if curl -sf http://127.0.0.1:8000/api/health/; then
+              echo "backend healthy"
+              exit 0
+            fi
+            echo "waiting... ($i)"
+            sleep 2
+          done
+          echo "::error::Backend did not become ready"
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend and Playwright
+        working-directory: frontend
+        run: npm ci && npx playwright install --with-deps chromium
+
+      - name: Playwright tests
+        working-directory: frontend
+        env:
+          CI: true
+        run: npx playwright test
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down

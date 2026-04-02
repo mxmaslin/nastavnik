@@ -121,24 +121,14 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ""
+      # SSR / server: обращение к Django в сети compose (браузер сам ходит на <host>:8000).
+      API_INTERNAL_URL: http://backend:8000
     depends_on:
       - backend
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
-    depends_on:
-      - backend
-      - frontend
-      - ml_service
 
   prometheus:
     image: prom/prometheus:v2.48.0

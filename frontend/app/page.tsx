@@ -91,13 +91,14 @@ export default function Home() {
           lessonId={selectedLesson.id}
           sessionId={sessionId}
           onComplete={handleComplete}
-          onBack={handleBack}
         />
       )}
 
       {view === 'statistics' && (
         <Statistics
           sessionId={sessionId}
+          lessonId={selectedLesson?.id}
+          lessonTitle={selectedLesson?.title}
           onBack={handleBack}
         />
       )}

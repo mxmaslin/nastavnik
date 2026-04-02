@@ -3,10 +3,15 @@ from .models import Lesson, Question, InteractionRecord, LessonSession
 
 
 class QuestionSerializer(serializers.ModelSerializer):
+    choices = serializers.SerializerMethodField()
+
     class Meta:
         model = Question
-        fields = ['id', 'text', 'order']
-        read_only_fields = ['id']
+        fields = ['id', 'text', 'order', 'choices']
+        read_only_fields = ['id', 'choices']
+
+    def get_choices(self, obj):
+        return obj.shuffled_choices()
 
 
 class LessonSerializer(serializers.ModelSerializer):
@@ -72,3 +77,5 @@ class StatisticsSerializer(serializers.Serializer):
     timeouts = serializers.IntegerField()
     ml_successful_validations = serializers.IntegerField()
     avg_session_duration_sec = serializers.FloatField()
+    scope = serializers.ChoiceField(choices=['all', 'lesson'], required=False)
+    lesson_title = serializers.CharField(allow_null=True, required=False)

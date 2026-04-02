@@ -18,13 +18,17 @@ def questions(lesson):
             lesson=lesson,
             text="What is 2+2?",
             correct_answer="4",
-            order=1
+            distractor_1="5",
+            distractor_2="22",
+            order=1,
         ),
         Question.objects.create(
             lesson=lesson,
             text="What is the capital of France?",
             correct_answer="Paris",
-            order=2
+            distractor_1="Lyon",
+            distractor_2="Marseille",
+            order=2,
         ),
     ]
 

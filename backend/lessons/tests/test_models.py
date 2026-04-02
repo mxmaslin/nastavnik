@@ -25,10 +25,29 @@ class TestQuestionModel:
         assert question.order == 1
 
     def test_question_ordering(self, lesson):
-        q1 = Question.objects.create(lesson=lesson, text="Q1", correct_answer="A1", order=2)
-        q2 = Question.objects.create(lesson=lesson, text="Q2", correct_answer="A2", order=1)
+        q1 = Question.objects.create(
+            lesson=lesson,
+            text="Q1",
+            correct_answer="A1",
+            distractor_1="x",
+            distractor_2="y",
+            order=2,
+        )
+        q2 = Question.objects.create(
+            lesson=lesson,
+            text="Q2",
+            correct_answer="A2",
+            distractor_1="x",
+            distractor_2="y",
+            order=1,
+        )
         questions = list(lesson.questions.all())
         assert questions[0].id == q2.id
+
+    def test_shuffled_choices_three_items(self, question):
+        ch = question.shuffled_choices()
+        assert len(ch) == 3
+        assert set(ch) == {'4', '5', '22'}
 
 
 @pytest.mark.django_db
