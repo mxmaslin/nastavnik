@@ -62,11 +62,11 @@ Backend container startup runs `migrate` and `seed_data` before Daphne.
 
 1. Edit `backend/lessons/models.py`.
 2. `docker compose exec backend python manage.py makemigrations lessons`
-3. Commit migration files; CI and `make up` apply `migrate`.
+3. Commit migration files; `make up` apply `migrate`.
 
 ## Quality gate before finishing
 
-- `make test` passes; при изменениях UI — `make test-e2e` (или CI job `e2e`).
+- `make test` passes; при изменениях UI — `make test-e2e`.
 - `make up` + smoke: lesson flow, ML delay/failures, stats.
 
 ## Additional resources

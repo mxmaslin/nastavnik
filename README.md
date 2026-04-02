@@ -64,7 +64,7 @@
 - "ML-сервис": FastAPI, Redis, PostgreSQL
 - Тесты: Pytest
 - Очередь: RabbitMQ
-- Деплой: Docker Compose, Github CI
+- Деплой: Docker Compose
 - Метрики: Prometheus, Grafana
 
 ### Запуск и просмотр
@@ -98,7 +98,7 @@ make up
 make test
 ```
 
-**E2E (Playwright)** — в отдельном job в GitHub Actions (`e2e`). Локально: поднять стек с backend (**`make up`** или как минимум сервисы до API на порту 8000), затем:
+**E2E (Playwright):** поднять стек с backend (**`make up`** или как минимум сервисы до API на порту 8000), затем:
 
 ```bash
 make test-e2e

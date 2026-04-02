@@ -23,7 +23,7 @@ nastavnik/
 
 1. **Functionality (30%)** — запуск по README, сценарии урока и ML
 2. **Code quality (25%)** — читаемость, конвенции
-3. **Testing (20%)** — pytest (backend + ml_service), `make test`; E2E фронта — `make test-e2e` / job **e2e** в CI (Playwright)
+3. **Testing (20%)** — pytest (backend + ml_service), `make test`; E2E фронта — `make test-e2e` (Playwright)
 4. **Documentation (10%)** — README, ясные инструкции
 5. **Architecture (15%)** — разделение сервисов, очередь, кэш, БД
 

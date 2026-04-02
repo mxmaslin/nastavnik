@@ -163,7 +163,7 @@
 Скопируй и отмечай:
 
 ```
-[ ] make test — зелёный (backend + ml_service); CI / make test-e2e — Playwright при поднятом API
+[ ] make test — зелёный (backend + ml_service); при необходимости make test-e2e (Playwright при поднятом API)
 [ ] docker compose config — без ошибок
 [ ] make up — backend healthy, celery без падений, seed есть данные
 [ ] http://localhost:3000 — старт урока, ответ, таймаут пустого ответа, досрочное завершение
@@ -175,4 +175,3 @@
 [ ] При изменении API — обновлён reference.md (или SKILL.md)
 ```
 
-Для публикации репозитория: убедиться, что **GitHub Actions** проходит на ветке по умолчанию.
