@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: nastavnik
+          POSTGRES_PASSWORD: nastavnik_secret
+          POSTGRES_DB: nastavnik
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready -U nastavnik -d nastavnik
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: nastavnik
+          RABBITMQ_DEFAULT_PASS: nastavnik
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 8
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: pytest
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_USER: nastavnik
+          POSTGRES_PASSWORD: nastavnik_secret
+          POSTGRES_DB: nastavnik
+          REDIS_URL: redis://localhost:6379/0
+          CELERY_BROKER_URL: amqp://nastavnik:nastavnik@localhost:5672//
+          CELERY_RESULT_BACKEND: redis://localhost:6379/2
+          CELERY_TASK_ALWAYS_EAGER: '1'
+          ML_SERVICE_URL: http://127.0.0.1:9
+
+  ml_service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml_service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ml_service/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: pytest
