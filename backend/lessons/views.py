@@ -2,10 +2,13 @@ import logging
 import os
 import uuid
 from django.utils import timezone
+from django.db.models import Max, Min
 from django.http import HttpResponse, JsonResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.types import OpenApiTypes
 
 from .models import Lesson, Question, InteractionRecord, LessonSession
 from .serializers import (
@@ -86,15 +89,17 @@ class LessonViewSet(viewsets.ReadOnlyModelViewSet):
             defaults={'current_question_index': 0}
         )
 
-        # Повтор того же урока с тем же session_id (после завершения и статистики).
+        # Повтор того же урока с тем же session_id — новая попытка; записи ответов не удаляем
+        # (история нужна для агрегированной статистики по session_id).
         if not created and session.is_completed:
-            InteractionRecord.objects.filter(session_id=session_id, lesson=lesson).delete()
+            session.attempt_number += 1
             session.is_completed = False
             session.completed_at = None
             session.current_question_index = 0
             session.started_at = timezone.now()
             session.save(
                 update_fields=[
+                    'attempt_number',
                     'is_completed',
                     'completed_at',
                     'current_question_index',
@@ -109,6 +114,7 @@ class LessonViewSet(viewsets.ReadOnlyModelViewSet):
         current_question = _question_at_index(lesson, session.current_question_index)
         return Response({
             'session_id': session.session_id,
+            'attempt_number': session.attempt_number,
             'lesson': LessonSerializer(lesson).data,
             'current_question': QuestionSerializer(current_question).data if current_question else None,
             'current_question_index': session.current_question_index,
@@ -134,11 +140,20 @@ class LessonViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        if session.is_completed:
+            return Response({
+                'success': True,
+                'success_rate': session.success_rate,
+                'remaining_marked_incorrect': 0,
+                'attempt_number': session.attempt_number,
+            })
+
         questions = _ordered_questions(lesson)
         answered_ids = set(
             InteractionRecord.objects.filter(
                 session_id=session_id,
                 lesson=lesson,
+                attempt_number=session.attempt_number,
             ).values_list('question_id', flat=True)
         )
 
@@ -153,17 +168,27 @@ class LessonViewSet(viewsets.ReadOnlyModelViewSet):
                     is_correct=False,
                     ml_service_success=False,
                     answered_at=now,
+                    attempt_number=session.attempt_number,
                 )
 
         session.is_completed = True
         session.completed_at = now
         session.current_question_index = len(questions)
-        session.save()
+        session.completion_count += 1
+        session.save(
+            update_fields=[
+                'is_completed',
+                'completed_at',
+                'current_question_index',
+                'completion_count',
+            ]
+        )
 
         return Response({
             'success': True,
             'success_rate': session.success_rate,
             'remaining_marked_incorrect': len(questions) - len(answered_ids),
+            'attempt_number': session.attempt_number,
         })
 
 
@@ -210,8 +235,11 @@ def submit_answer(request):
     answer = serializer.validated_data['answer']
 
     try:
-        session = LessonSession.objects.get(session_id=session_id)
         question = Question.objects.get(id=question_id)
+        session = LessonSession.objects.get(
+            session_id=session_id,
+            lesson_id=question.lesson_id,
+        )
     except (LessonSession.DoesNotExist, Question.DoesNotExist):
         return Response(
             {'error': 'Session or question not found'},
@@ -249,7 +277,8 @@ def submit_answer(request):
         lesson=session.lesson,
         question=question,
         user_answer=answer,
-        answered_at=timezone.now()
+        answered_at=timezone.now(),
+        attempt_number=session.attempt_number,
     )
 
     validate_answer_task.delay(
@@ -286,6 +315,37 @@ def interaction_status(request, interaction_id):
         )
 
 
+@extend_schema(
+    summary='Статистика по урокам и ответам',
+    description=(
+        'Агрегирует `InteractionRecord` и `LessonSession`. '
+        '`lesson_id` только вместе с `session_id`. '
+        '`attempt_number` — одна попытка урока (только с `lesson_id`); '
+        'для `scope=attempt` иначе считаются `completed_sessions` и длительность (см. описание полей). '
+        'Счётчики `timeouts` / `ml_failures` / `ml_successful_validations` могут пересекаться по одной записи.'
+    ),
+    parameters=[
+        OpenApiParameter(
+            'session_id',
+            OpenApiTypes.STR,
+            OpenApiParameter.QUERY,
+            description='Идентификатор браузерной сессии (как на фронте).',
+        ),
+        OpenApiParameter(
+            'lesson_id',
+            OpenApiTypes.UUID,
+            OpenApiParameter.QUERY,
+            description='Ограничить статистику одним уроком (требуется session_id).',
+        ),
+        OpenApiParameter(
+            'attempt_number',
+            OpenApiTypes.INT,
+            OpenApiParameter.QUERY,
+            description='Одна попытка урока (с lesson_id). Без параметра — все попытки урока.',
+        ),
+    ],
+    responses={200: StatisticsSerializer},
+)
 @api_view(['GET'])
 def statistics(request):
     session_id = request.query_params.get('session_id')
@@ -301,6 +361,24 @@ def statistics(request):
         except (ValueError, TypeError, AttributeError):
             return Response(
                 {'error': 'invalid lesson_id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    attempt_raw = request.query_params.get('attempt_number')
+    attempt_filter = None
+    if attempt_raw is not None and str(attempt_raw).strip() != '':
+        if not lesson_id:
+            return Response(
+                {'error': 'attempt_number requires lesson_id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            attempt_filter = int(attempt_raw)
+            if attempt_filter < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'invalid attempt_number'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -321,21 +399,40 @@ def statistics(request):
         except Lesson.DoesNotExist:
             lesson_title = None
 
+    if attempt_filter is not None:
+        interactions = interactions.filter(attempt_number=attempt_filter)
+        scope = 'attempt'
+
     total = interactions.count()
     correct = interactions.filter(is_correct=True).count()
     ml_failures = interactions.filter(ml_service_success=False).count()
     timeouts = interactions.filter(user_answer='').count()
     ml_ok = interactions.filter(ml_service_success=True).count()
 
-    durations = []
-    for s in session_qs.filter(is_completed=True):
-        if s.completed_at and s.started_at:
-            durations.append((s.completed_at - s.started_at).total_seconds())
-    avg_duration = round(sum(durations) / len(durations), 2) if durations else 0.0
+    if attempt_filter is not None and lesson_id:
+        try:
+            n_questions = Lesson.objects.get(id=lesson_id).questions.count()
+        except Lesson.DoesNotExist:
+            n_questions = 0
+        n_distinct = interactions.values('question_id').distinct().count()
+        completed_runs = 1 if n_questions > 0 and n_distinct >= n_questions else 0
+        agg = interactions.aggregate(mn=Min('answered_at'), mx=Max('answered_at'))
+        mn, mx = agg['mn'], agg['mx']
+        if mn and mx and mx >= mn:
+            avg_duration = round((mx - mn).total_seconds(), 2)
+        else:
+            avg_duration = 0.0
+    else:
+        durations = []
+        for s in session_qs.filter(is_completed=True):
+            if s.completed_at and s.started_at:
+                durations.append((s.completed_at - s.started_at).total_seconds())
+        avg_duration = round(sum(durations) / len(durations), 2) if durations else 0.0
+        completed_runs = sum(s.completion_count for s in session_qs)
 
     serializer = StatisticsSerializer({
         'total_sessions': session_qs.count(),
-        'completed_sessions': session_qs.filter(is_completed=True).count(),
+        'completed_sessions': completed_runs,
         'total_questions_answered': total,
         'correct_answers': correct,
         'success_rate': round((correct / total) * 100, 1) if total > 0 else 0,

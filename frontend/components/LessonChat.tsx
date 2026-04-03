@@ -14,6 +14,7 @@ interface Question {
 
 interface StartLessonResponse {
   session_id: string;
+  attempt_number?: number;
   lesson?: { id: string; title?: string; text?: string; questions?: Question[] };
   current_question: Question | null;
   current_question_index: number;
@@ -30,7 +31,7 @@ interface Message {
 interface LessonChatProps {
   lessonId: string;
   sessionId: string;
-  onComplete: () => void;
+  onComplete: (payload: { attemptNumber: number }) => void;
 }
 
 type Phase = 'reading' | 'questions' | 'completed';
@@ -52,6 +53,7 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
   const prevQuestionIdRef = useRef<string | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startPayloadRef = useRef<StartLessonResponse | null>(null);
+  const attemptNumberRef = useRef(1);
   const handleTimeoutRef = useRef<() => void>(() => {});
 
   const addMessage = useCallback((type: Message['type'], content: string, isCorrect?: boolean | null) => {
@@ -82,6 +84,9 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
 
   const applyStartResponse = useCallback((data: StartLessonResponse) => {
     startPayloadRef.current = data;
+    if (typeof data.attempt_number === 'number') {
+      attemptNumberRef.current = data.attempt_number;
+    }
     setTotalQuestions(data.total_questions);
     setCurrentIndex(data.current_question_index);
 
@@ -92,7 +97,16 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
       setIsCompleted(true);
       setPhase('completed');
       addMessage('info', 'В этом уроке нет вопросов.');
-      void completeLesson(lessonId, sessionId).catch(() => {});
+      void (async () => {
+        try {
+          const res = await completeLesson(lessonId, sessionId);
+          if (typeof (res as { attempt_number?: number }).attempt_number === 'number') {
+            attemptNumberRef.current = (res as { attempt_number: number }).attempt_number;
+          }
+        } catch {
+          /* empty */
+        }
+      })();
       return;
     }
 
@@ -143,13 +157,20 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
       const finalizeSuccess = (icon: string, text: string, correctFlag: boolean | null) => {
         addMessage('result', `${icon} ${text}`, correctFlag);
         if (lessonComplete) {
-          addMessage('info', 'Урок завершён.');
-          setIsCompleted(true);
-          setPhase('completed');
-          stopTimer();
-          void completeLesson(lessonId, sessionId).catch(() => {
-            addMessage('error', 'Не удалось зафиксировать урок на сервере.');
-          });
+          void (async () => {
+            try {
+              const res = await completeLesson(lessonId, sessionId);
+              if (typeof (res as { attempt_number?: number }).attempt_number === 'number') {
+                attemptNumberRef.current = (res as { attempt_number: number }).attempt_number;
+              }
+            } catch {
+              addMessage('error', 'Не удалось зафиксировать урок на сервере.');
+            }
+            addMessage('info', 'Урок завершён.');
+            setIsCompleted(true);
+            setPhase('completed');
+            stopTimer();
+          })();
         }
       };
 
@@ -176,10 +197,19 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
           } else {
             addMessage('error', 'Проверка ответа занимает слишком много времени.');
             if (lessonComplete) {
-              setIsCompleted(true);
-              setPhase('completed');
-              stopTimer();
-              void completeLesson(lessonId, sessionId).catch(() => {});
+              void (async () => {
+                try {
+                  const res = await completeLesson(lessonId, sessionId);
+                  if (typeof (res as { attempt_number?: number }).attempt_number === 'number') {
+                    attemptNumberRef.current = (res as { attempt_number: number }).attempt_number;
+                  }
+                } catch {
+                  /* empty */
+                }
+                setIsCompleted(true);
+                setPhase('completed');
+                stopTimer();
+              })();
             }
           }
         } catch {
@@ -187,10 +217,19 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
             setTimeout(poll, 2000);
           } else {
             if (lessonComplete) {
-              setIsCompleted(true);
-              setPhase('completed');
-              stopTimer();
-              void completeLesson(lessonId, sessionId).catch(() => {});
+              void (async () => {
+                try {
+                  const res = await completeLesson(lessonId, sessionId);
+                  if (typeof (res as { attempt_number?: number }).attempt_number === 'number') {
+                    attemptNumberRef.current = (res as { attempt_number: number }).attempt_number;
+                  }
+                } catch {
+                  /* empty */
+                }
+                setIsCompleted(true);
+                setPhase('completed');
+                stopTimer();
+              })();
             }
           }
         }
@@ -257,6 +296,7 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
 
   useEffect(() => {
     prevQuestionIdRef.current = null;
+    attemptNumberRef.current = 1;
   }, [lessonId]);
 
   const handleSubmit = async () => {
@@ -298,6 +338,9 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
     );
     try {
       const res = await completeLesson(lessonId, sessionId);
+      if (typeof (res as { attempt_number?: number }).attempt_number === 'number') {
+        attemptNumberRef.current = (res as { attempt_number: number }).attempt_number;
+      }
       const n = typeof res.remaining_marked_incorrect === 'number' ? res.remaining_marked_incorrect : 0;
       if (n > 0) {
         addMessage('info', `Записано без ответа: ${n} вопрос(ов).`);
@@ -693,7 +736,11 @@ export default function LessonChat({ lessonId, sessionId, onComplete }: LessonCh
         >
           <button
             type="button"
-            onClick={onComplete}
+            onClick={() =>
+              onComplete({
+                attemptNumber: attemptNumberRef.current,
+              })
+            }
             style={{
               padding: '12px 32px',
               background: 'var(--success)',

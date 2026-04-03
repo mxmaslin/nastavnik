@@ -68,14 +68,46 @@ class AnswerSubmitSerializer(serializers.Serializer):
 
 
 class StatisticsSerializer(serializers.Serializer):
-    total_sessions = serializers.IntegerField()
-    completed_sessions = serializers.IntegerField()
-    total_questions_answered = serializers.IntegerField()
-    correct_answers = serializers.IntegerField()
-    success_rate = serializers.FloatField()
-    ml_failures = serializers.IntegerField()
-    timeouts = serializers.IntegerField()
-    ml_successful_validations = serializers.IntegerField()
-    avg_session_duration_sec = serializers.FloatField()
-    scope = serializers.ChoiceField(choices=['all', 'lesson'], required=False)
-    lesson_title = serializers.CharField(allow_null=True, required=False)
+    total_sessions = serializers.IntegerField(
+        help_text='Число строк LessonSession в выборке (обычно уникальные пары session_id+урок).',
+    )
+    completed_sessions = serializers.IntegerField(
+        help_text=(
+            'Без attempt_number: сумма completion_count по LessonSession в выборке. '
+            'С attempt_number (scope=attempt): 1, если по этой попытке закрыты все вопросы урока, иначе 0.'
+        ),
+    )
+    total_questions_answered = serializers.IntegerField(
+        help_text='Число записей InteractionRecord в выборке (все попытки/ответы, включая таймауты и автозапись при завершении).',
+    )
+    correct_answers = serializers.IntegerField(
+        help_text='Записи с is_correct=true.',
+    )
+    success_rate = serializers.FloatField(
+        help_text='Доля верных от total_questions_answered, %.',
+    )
+    ml_failures = serializers.IntegerField(
+        help_text='Записи с ml_service_success=false (может пересекаться с timeouts).',
+    )
+    timeouts = serializers.IntegerField(
+        help_text='Записи с пустым user_answer.',
+    )
+    ml_successful_validations = serializers.IntegerField(
+        help_text='Записи с ml_service_success=true.',
+    )
+    avg_session_duration_sec = serializers.FloatField(
+        help_text=(
+            'Без attempt_number: среднее (completed_at − started_at) по завершённым LessonSession. '
+            'С attempt_number: разница max−min answered_at по записям этой попытки.'
+        ),
+    )
+    scope = serializers.ChoiceField(
+        choices=['all', 'lesson', 'attempt'],
+        required=False,
+        help_text='all — без lesson_id; lesson — все попытки урока; attempt — одна попытка (attempt_number).',
+    )
+    lesson_title = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text='Название урока при переданном lesson_id (scope lesson или attempt).',
+    )

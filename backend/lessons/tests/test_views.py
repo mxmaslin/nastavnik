@@ -6,7 +6,7 @@ from django.test import Client
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework import status
-from lessons.models import Lesson, Question, InteractionRecord
+from lessons.models import Lesson, Question, InteractionRecord, LessonSession
 
 
 @pytest.mark.django_db
@@ -75,11 +75,20 @@ class TestLessonAPI:
         assert response.data['current_question']['id'] == str(questions[0].id)
         session.refresh_from_db()
         assert session.is_completed is False
+        assert session.attempt_number == 2
         assert (
             InteractionRecord.objects.filter(
                 session_id=session.session_id, lesson=lesson
             ).count()
-            == 0
+            == 1
+        )
+        assert (
+            InteractionRecord.objects.filter(
+                session_id=session.session_id,
+                lesson=lesson,
+                attempt_number=1,
+            ).count()
+            == 1
         )
 
     def test_complete_lesson_fills_remaining(self, lesson, questions, session):
@@ -189,6 +198,78 @@ class TestStatisticsAPI:
         assert r_one.data['scope'] == 'lesson'
         assert r_one.data['lesson_title'] == lesson.title
 
+    def test_statistics_accumulates_repeats_same_lesson(self, lesson, questions):
+        sid = 'repeat-stats'
+        LessonSession.objects.create(
+            session_id=sid,
+            lesson=lesson,
+            attempt_number=2,
+            completion_count=2,
+            is_completed=True,
+        )
+        InteractionRecord.objects.create(
+            session_id=sid,
+            lesson=lesson,
+            question=questions[0],
+            user_answer='4',
+            is_correct=True,
+            ml_service_success=True,
+            attempt_number=1,
+        )
+        InteractionRecord.objects.create(
+            session_id=sid,
+            lesson=lesson,
+            question=questions[1],
+            user_answer='x',
+            is_correct=False,
+            ml_service_success=True,
+            attempt_number=1,
+        )
+        InteractionRecord.objects.create(
+            session_id=sid,
+            lesson=lesson,
+            question=questions[0],
+            user_answer='5',
+            is_correct=False,
+            ml_service_success=True,
+            attempt_number=2,
+        )
+        InteractionRecord.objects.create(
+            session_id=sid,
+            lesson=lesson,
+            question=questions[1],
+            user_answer='y',
+            is_correct=False,
+            ml_service_success=True,
+            attempt_number=2,
+        )
+        r = self.client.get('/api/statistics/', {'session_id': sid})
+        assert r.status_code == status.HTTP_200_OK
+        assert r.data['total_questions_answered'] == 4
+        assert r.data['correct_answers'] == 1
+        assert r.data['completed_sessions'] == 2
+        assert r.data['total_sessions'] == 1
+        r1 = self.client.get(
+            '/api/statistics/',
+            {'session_id': sid, 'lesson_id': str(lesson.id), 'attempt_number': '1'},
+        )
+        assert r1.status_code == status.HTTP_200_OK
+        assert r1.data['scope'] == 'attempt'
+        assert r1.data['total_questions_answered'] == 2
+        assert r1.data['correct_answers'] == 1
+        assert r1.data['completed_sessions'] == 1
+        r2 = self.client.get(
+            '/api/statistics/',
+            {'session_id': sid, 'lesson_id': str(lesson.id), 'attempt_number': '2'},
+        )
+        assert r2.data['total_questions_answered'] == 2
+        assert r2.data['correct_answers'] == 0
+        assert r2.data['completed_sessions'] == 1
+
+    def test_statistics_attempt_number_requires_lesson(self):
+        r = self.client.get('/api/statistics/', {'session_id': 's', 'attempt_number': '1'})
+        assert r.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_statistics_lesson_without_session_fails(self, lesson):
         r = self.client.get('/api/statistics/', {'lesson_id': str(lesson.id)})
         assert r.status_code == status.HTTP_400_BAD_REQUEST
@@ -229,6 +310,16 @@ class TestBackendRoot:
         r = Client().get('/api/schema/')
         assert r.status_code == 200
         assert b'openapi' in r.content.lower()
+        assert b'/api/statistics/' in r.content
+
+    def test_openapi_statistics_response_has_field_descriptions(self):
+        r = Client().get('/api/schema/')
+        assert r.status_code == 200
+        raw = r.content.decode()
+        assert 'total_sessions' in raw
+        assert 'completion_count' in raw
+        assert 'LessonSession' in raw
+        assert 'attempt_number' in raw
 
     def test_root_json(self):
         r = Client().get('/', HTTP_ACCEPT='application/json')

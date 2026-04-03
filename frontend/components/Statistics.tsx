@@ -13,15 +13,16 @@ interface Stats {
   timeouts: number;
   ml_successful_validations: number;
   avg_session_duration_sec: number;
-  scope?: 'all' | 'lesson';
+  scope?: 'all' | 'lesson' | 'attempt';
   lesson_title?: string | null;
 }
 
 interface StatisticsProps {
   sessionId: string;
-  /** Если задан — статистика только по этому уроку (после прохождения). */
+  /** Все попытки урока — только lesson_id; одна попытка — ещё и attempt_number (после «Статистика» из урока). */
   lessonId?: string;
   lessonTitle?: string;
+  attemptNumber?: number;
   onBack: () => void;
 }
 
@@ -29,20 +30,32 @@ export default function Statistics({
   sessionId,
   lessonId,
   lessonTitle,
+  attemptNumber,
   onBack,
 }: StatisticsProps) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
     setLoading(true);
-    getStatistics(sessionId || undefined, lessonId)
+    setStats(null);
+    const attemptArg =
+      lessonId && attemptNumber != null && attemptNumber >= 1
+        ? attemptNumber
+        : undefined;
+    getStatistics(sessionId, lessonId, attemptArg)
       .then(data => {
         setStats(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, [sessionId, lessonId]);
+      .catch(() => {
+        setStats(null);
+        setLoading(false);
+      });
+  }, [sessionId, lessonId, attemptNumber]);
 
   if (loading) {
     return (
@@ -71,6 +84,9 @@ export default function Statistics({
     );
   }
 
+  const isAllLessons = !lessonId;
+  const isSingleAttempt = Boolean(lessonId && attemptNumber != null);
+
   return (
     <div style={{
       background: 'white',
@@ -90,11 +106,15 @@ export default function Statistics({
         <div>
           <h2 style={{ fontSize: '24px', margin: 0 }}>📊 Статистика</h2>
           <p style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '8px' }}>
-            {lessonId
+            {isSingleAttempt
               ? lessonTitle
-                ? `Только урок: ${lessonTitle}`
-                : 'Только этот урок'
-              : 'Все пройденные ранее уроки'}
+                ? `Только эта попытка (№${attemptNumber}): ${lessonTitle}`
+                : `Только эта попытка (№${attemptNumber})`
+              : lessonId
+                ? lessonTitle
+                  ? `Все попытки урока: ${lessonTitle}`
+                  : 'Все попытки этого урока'
+                : 'Все пройденные ранее уроки'}
           </p>
         </div>
         <button
@@ -115,25 +135,41 @@ export default function Statistics({
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
         gap: '16px',
-        marginBottom: '24px'
+        marginBottom: '12px'
       }}>
         <StatCard
-          label="Sessions"
+          label="Уникальных уроков"
+          hint={
+            isSingleAttempt
+              ? 'В выборке один урок.'
+              : isAllLessons
+                ? 'Разных уроков, по которым есть данные (не число проходов).'
+                : 'Уроков в выборке при фильтре по одному уроку.'
+          }
           value={stats.total_sessions}
           color="var(--primary)"
         />
         <StatCard
-          label="Completed"
+          label="Завершённых проходов"
+          hint={
+            isSingleAttempt
+              ? '1, если по этой попытке закрыты все вопросы урока; иначе 0.'
+              : isAllLessons
+                ? 'Сколько раз урок был доведён до конца; повтор того же урока добавляет +1.'
+                : 'Сумма завершений по выбранному уроку (все попытки).'
+          }
           value={stats.completed_sessions}
           color="var(--success)"
         />
         <StatCard
-          label="Questions"
+          label="Записей ответов"
+          hint="Все ответы и служебные записи (в т.ч. таймауты и добор при завершении), суммарно по выбранному диапазону."
           value={stats.total_questions_answered}
           color="var(--primary)"
         />
         <StatCard
-          label="Correct"
+          label="Верных"
+          hint="Ответы, по которым проверка дала «верно»."
           value={stats.correct_answers}
           color="var(--success)"
         />
@@ -147,7 +183,7 @@ export default function Statistics({
         marginBottom: '24px'
       }}>
         <p style={{ fontSize: '14px', color: 'var(--gray-500)', marginBottom: '8px' }}>
-          Success Rate
+          Доля верных ответов
         </p>
         <p style={{
           fontSize: '48px',
@@ -158,6 +194,19 @@ export default function Statistics({
           {stats.success_rate}%
         </p>
       </div>
+
+      <p style={{
+        fontSize: '11px',
+        color: 'var(--gray-500)',
+        lineHeight: 1.45,
+        margin: '0 0 12px 0',
+        padding: '10px 12px',
+        background: 'rgba(0,0,0,0.03)',
+        borderRadius: '8px'
+      }}>
+        Ниже — отдельные счётчики по признакам записи. Они <strong>не суммируются</strong> в число
+        ответов: например, таймаут часто одновременно учитывается и как сбой проверки ML.
+      </p>
 
       <div style={{
         display: 'grid',
@@ -171,32 +220,56 @@ export default function Statistics({
           <p style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--error)' }}>
             {stats.timeouts}
           </p>
-          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Timeouts</p>
+          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Таймауты</p>
+          <p style={{ fontSize: '10px', color: 'var(--gray-500)', marginTop: '4px', lineHeight: 1.35 }}>
+            Пустой ответ (ожидание / пропуск)
+          </p>
         </div>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--warning)' }}>
             {stats.ml_failures}
           </p>
-          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>AI Failures</p>
+          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Сбои ML</p>
+          <p style={{ fontSize: '10px', color: 'var(--gray-500)', marginTop: '4px', lineHeight: 1.35 }}>
+            Сервис проверки недоступен / ошибка
+          </p>
         </div>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--success)' }}>
             {stats.ml_successful_validations}
           </p>
-          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>ML OK</p>
+          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Проверка ML ОК</p>
+          <p style={{ fontSize: '10px', color: 'var(--gray-500)', marginTop: '4px', lineHeight: 1.35 }}>
+            Ответ дошёл до ML и получил результат
+          </p>
         </div>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--primary)' }}>
             {stats.avg_session_duration_sec}s
           </p>
-          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Avg session</p>
+          <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>Ср. длительность</p>
+          <p style={{ fontSize: '10px', color: 'var(--gray-500)', marginTop: '4px', lineHeight: 1.35 }}>
+            {isSingleAttempt
+              ? 'От первой до последней записи ответа в этой попытке'
+              : 'По завершённым проходам в выборке'}
+          </p>
         </div>
       </div>
     </div>
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({
+  label,
+  hint,
+  value,
+  color,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  color: string;
+}) {
   return (
     <div style={{
       background: 'var(--gray-100)',
@@ -206,6 +279,17 @@ function StatCard({ label, value, color }: { label: string; value: number; color
     }}>
       <p style={{ fontSize: '24px', fontWeight: 'bold', color }}>{value}</p>
       <p style={{ fontSize: '12px', color: 'var(--gray-500)' }}>{label}</p>
+      {hint ? (
+        <p style={{
+          fontSize: '10px',
+          color: 'var(--gray-500)',
+          marginTop: '8px',
+          lineHeight: 1.35,
+          textAlign: 'left',
+        }}>
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

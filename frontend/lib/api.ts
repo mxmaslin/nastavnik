@@ -78,13 +78,20 @@ export async function completeLesson(lessonId: string, sessionId: string) {
   return res.json();
 }
 
-export async function getStatistics(sessionId?: string, lessonId?: string) {
+export async function getStatistics(
+  sessionId?: string,
+  lessonId?: string,
+  attemptNumber?: number
+) {
   const params = new URLSearchParams();
   if (sessionId) params.set('session_id', sessionId);
   if (lessonId) params.set('lesson_id', lessonId);
+  if (attemptNumber != null && attemptNumber >= 1) {
+    params.set('attempt_number', String(attemptNumber));
+  }
   const q = params.toString();
   const url = q ? apiUrl(`/api/statistics/?${q}`) : apiUrl('/api/statistics/');
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch statistics');
   return res.json();
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import LessonChat from '@/components/LessonChat';
 import LessonSelect from '@/components/LessonSelect';
 import Statistics from '@/components/Statistics';
@@ -17,6 +17,8 @@ export default function Home() {
   const [view, setView] = useState<View>('select');
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [sessionId, setSessionId] = useState<string>('');
+  /** После урока — номер попытки для статистики «только этот проход»; с главной — null. */
+  const [statsAttemptNumber, setStatsAttemptNumber] = useState<number | null>(null);
 
   useEffect(() => {
     let sid = sessionStorage.getItem('session_id');
@@ -32,13 +34,15 @@ export default function Home() {
     setView('lesson');
   };
 
-  const handleComplete = () => {
+  const handleComplete = (payload: { attemptNumber: number }) => {
+    setStatsAttemptNumber(payload.attemptNumber);
     setView('statistics');
   };
 
   const handleBack = () => {
     setView('select');
     setSelectedLesson(null);
+    setStatsAttemptNumber(null);
   };
 
   return (
@@ -69,7 +73,10 @@ export default function Home() {
             onSelect={handleSelectLesson}
           />
           <button
-            onClick={() => setView('statistics')}
+            onClick={() => {
+              setStatsAttemptNumber(null);
+              setView('statistics');
+            }}
             style={{
               marginTop: '16px',
               width: '100%',
@@ -99,6 +106,7 @@ export default function Home() {
           sessionId={sessionId}
           lessonId={selectedLesson?.id}
           lessonTitle={selectedLesson?.title}
+          attemptNumber={statsAttemptNumber ?? undefined}
           onBack={handleBack}
         />
       )}

@@ -80,10 +80,13 @@ class InteractionRecord(models.Model):
     answered_at = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    attempt_number = models.PositiveIntegerField(default=1)
+
     class Meta:
         ordering = ['answered_at']
         indexes = [
             models.Index(fields=['session_id', 'lesson']),
+            models.Index(fields=['session_id', 'lesson', 'attempt_number']),
             models.Index(fields=['answered_at']),
         ]
 
@@ -99,6 +102,8 @@ class LessonSession(models.Model):
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     is_completed = models.BooleanField(default=False)
+    attempt_number = models.PositiveIntegerField(default=1)
+    completion_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ['-started_at']
@@ -114,11 +119,12 @@ class LessonSession(models.Model):
 
     @property
     def success_rate(self):
-        total = self.lesson.interactions.filter(session_id=self.session_id).count()
+        qs = self.lesson.interactions.filter(
+            session_id=self.session_id,
+            attempt_number=self.attempt_number,
+        )
+        total = qs.count()
         if total == 0:
             return 0
-        correct = self.lesson.interactions.filter(
-            session_id=self.session_id,
-            is_correct=True
-        ).count()
+        correct = qs.filter(is_correct=True).count()
         return round((correct / total) * 100, 1)
